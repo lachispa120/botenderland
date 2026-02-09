@@ -1,5 +1,19 @@
 const { Client, GatewayIntentBits, EmbedBuilder } = require('discord.js');
 const https = require('https');
+const express = require('express'); // <--- AÑADIDO
+
+// --- CONFIGURACIÓN DEL SERVIDOR WEB PARA RENDER ---
+const app = express();
+const port = process.env.PORT || 3000;
+
+app.get('/', (req, res) => {
+    res.send('✅ Enderland Bot está funcionando 24/7');
+});
+
+app.listen(port, () => {
+    console.log(`📡 Servidor web activo en el puerto ${port}`);
+});
+// -------------------------------------------------
 
 const client = new Client({
     intents: [
@@ -75,21 +89,25 @@ client.on('messageCreate', async (message) => {
             let data = '';
             res.on('data', (chunk) => data += chunk);
             res.on('end', () => {
-                const info = JSON.parse(data);
-                const pEmbed = new EmbedBuilder().setTitle('📊 Estado de Enderland');
-                if (info.online) {
-                    let lista = info.players.list && info.players.list.length > 0 
-                        ? info.players.list.map(p => p.name_clean).join(', ') 
-                        : 'No hay nadie conectado.';
-                    pEmbed.setColor('#2ecc71').addFields(
-                        { name: 'Estado', value: '🟢 Online', inline: true },
-                        { name: 'Jugadores', value: `**${info.players.online}** / ${info.players.max}`, inline: true },
-                        { name: 'Lista:', value: `\`\`\`${lista}\`\`\`` }
-                    );
-                } else {
-                    pEmbed.setColor('#e74c3c').setDescription('🔴 El servidor está offline.');
+                try {
+                    const info = JSON.parse(data);
+                    const pEmbed = new EmbedBuilder().setTitle('📊 Estado de Enderland');
+                    if (info.online) {
+                        let lista = info.players.list && info.players.list.length > 0 
+                            ? info.players.list.map(p => p.name_clean).join(', ') 
+                            : 'No hay nadie conectado.';
+                        pEmbed.setColor('#2ecc71').addFields(
+                            { name: 'Estado', value: '🟢 Online', inline: true },
+                            { name: 'Jugadores', value: `**${info.players.online}** / ${info.players.max}`, inline: true },
+                            { name: 'Lista:', value: `\`\`\`${lista}\`\`\`` }
+                        );
+                    } else {
+                        pEmbed.setColor('#e74c3c').setDescription('🔴 El servidor está offline.');
+                    }
+                    message.reply({ embeds: [pEmbed] });
+                } catch (e) {
+                    message.reply("❌ Error al obtener el estado.");
                 }
-                message.reply({ embeds: [pEmbed] });
             });
         });
     }
