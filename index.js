@@ -24,8 +24,8 @@ const SERVER_IP = 'play.enderland.org';
 const WEB_URL = 'https://enderland.org';
 
 // ⚠️ REEMPLAZA ESTOS IDs CON LOS DE TU SERVIDOR
-const ROL_MIEMBRO_ID = '1468201851588444210'; // ID de 『👤』 Miembro
-const ROL_ANTIMEMBER_ID = 'ID_AQUÍ'; // ID de antimember
+const ROL_MIEMBRO_ID = '1468135397677727870'; // ID de 『👤』 Miembro
+const ROL_ANTIMEMBER_ID = '1468200449466306765'; // ID de antimember
 
 client.once('ready', () => {
     console.log(`✅ Enderland Bot encendido como ${client.user.tag}`);
@@ -118,3 +118,4 @@ client.on('messageCreate', async (message) => {
 });
 
 client.login(TOKEN);
+
