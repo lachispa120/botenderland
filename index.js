@@ -1,8 +1,8 @@
 const { Client, GatewayIntentBits, EmbedBuilder } = require('discord.js');
 const https = require('https');
-const express = require('express'); // <--- AÑADIDO
+const express = require('express');
 
-// --- CONFIGURACIÓN DEL SERVIDOR WEB PARA RENDER ---
+// --- CONFIGURACIÓN DEL SERVIDOR WEB PARA RENDER / DISCLOUD ---
 const app = express();
 const port = process.env.PORT || 3000;
 
@@ -57,7 +57,7 @@ client.once('ready', () => {
     setInterval(updateStatus, 60000); // Actualiza cada 1 minuto
 });
 
-// 2. COMANDOS
+// 2. SISTEMA DE COMANDOS
 client.on('messageCreate', async (message) => {
     if (message.author.bot) return;
     if (!message.content.startsWith('!') && !message.content.startsWith('/')) return;
@@ -83,7 +83,7 @@ client.on('messageCreate', async (message) => {
     if (command === 'tienda') return message.reply(`🛒 **Tienda de Enderland:** ${WEB_URL}/tienda`);
     if (command === 'discord') return message.reply(`📢 **Comunidad:** ${DISCORD_LINK}`);
 
-    // COMANDO PLAYERS
+    // COMANDO PLAYERS / STATUS
     if (command === 'players' || command === 'status') {
         https.get(`https://api.mcstatus.io/v2/status/java/${SERVER_IP}`, (res) => {
             let data = '';
@@ -127,6 +127,34 @@ client.on('messageCreate', async (message) => {
                 message.channel.send(`✅ Enviado a ${canal}`).then(m => setTimeout(() => m.delete(), 3000));
             })
             .catch(() => message.reply('❌ No tengo permisos en ese canal.'));
+    }
+
+    // COMANDO STAFF: !embed #canal (Crea un embed de verificación)
+    if (command === 'embed') {
+        if (!message.member.permissions.has('Administrator')) return message.reply('❌ No tienes permiso.');
+
+        const canal = message.mentions.channels.first();
+        if (!canal) return message.reply('⚠️ Uso: `!embed #canal`');
+
+        const embedVerificacion = new EmbedBuilder()
+            .setColor('#5865F2')
+            .setTitle('『✅』 SISTEMA DE VERIFICACIÓN')
+            .setAuthor({ name: 'Enderland Network', iconURL: client.user.displayAvatarURL() })
+            .setDescription(
+                '¡Bienvenido a **Enderland Network**!\n\n' +
+                'Para acceder a la comunidad y desbloquear todos los canales, es necesario que te verifiques.\n\n' +
+                '**¿Por qué verificarse?**\n' +
+                '• Evitamos el ingreso de bots y raids.\n' +
+                '• Aseguramos una comunidad limpia.\n' +
+                '• Confirmas que has leído las reglas.\n\n' +
+                '> Tienda oficial: https://enderland.org'
+            )
+            .setFooter({ text: 'Enderland Network • Seguridad', iconURL: client.user.displayAvatarURL() })
+            .setTimestamp();
+
+        return canal.send({ embeds: [embedVerificacion] }).then(() => {
+            message.reply(`✅ Embed enviado con éxito a ${canal}`);
+        });
     }
 });
 
