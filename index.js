@@ -1,12 +1,14 @@
-const { Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
+const { Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const https = require('https');
 const express = require('express');
 
+// --- SERVIDOR WEB PARA MANTENER EL BOT ACTIVO ---
 const app = express();
 const port = process.env.PORT || 3000;
-app.get('/', (req, res) => res.send('✅ Enderland Bot Online'));
-app.listen(port);
+app.get('/', (req, res) => res.send('✅ Enderland Bot está funcionando 24/7'));
+app.listen(port, () => console.log(`📡 Servidor activo en puerto ${port}`));
 
+// --- CONFIGURACIÓN DEL CLIENTE ---
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
@@ -16,51 +18,57 @@ const client = new Client({
     ]
 });
 
+// --- VARIABLES DE CONFIGURACIÓN ---
 const TOKEN = process.env.DISCORD_TOKEN;
 const SERVER_IP = 'play.enderland.org';
 const WEB_URL = 'https://enderland.org';
 
+// ⚠️ TUS IDs (Verifica que sean los correctos)
 const MI_ID = '715742569312550933'; 
 const ROL_MIEMBRO_ID = '1468135397677727870'; 
 const ROL_ANTIMEMBER_ID = '1468200449466306765'; 
 
 client.once('ready', () => {
     console.log(`✅ Enderland Bot encendido como ${client.user.tag}`);
+    
+    // Estado dinámico con jugadores de Minecraft
+    setInterval(() => {
+        https.get(`https://api.mcstatus.io/v2/status/java/${SERVER_IP}`, (res) => {
+            let data = '';
+            res.on('data', (chunk) => data += chunk);
+            res.on('end', () => {
+                try {
+                    const info = JSON.parse(data);
+                    if (info.online) {
+                        client.user.setActivity(`${info.players.online}/${info.players.max} en ${SERVER_IP}`, { type: 0 });
+                    }
+                } catch (e) { }
+            });
+        });
+    }, 60000);
 });
 
-// --- MANEJO DE INTERACCIONES (BOTONES Y MODALES) ---
+// --- SISTEMA DE VERIFICACIÓN (BOTONES) ---
 client.on('interactionCreate', async (interaction) => {
-    // 1. Lógica del Botón de Verificación
-    if (interaction.isButton() && interaction.customId === 'verificar_btn') {
+    if (!interaction.isButton()) return;
+
+    if (interaction.customId === 'verificar_btn') {
         const miembro = interaction.member;
         try {
             if (miembro.roles.cache.has(ROL_MIEMBRO_ID)) {
                 return interaction.reply({ content: '✅ Ya estás verificado.', ephemeral: true });
             }
+
             await miembro.roles.add(ROL_MIEMBRO_ID);
             if (miembro.roles.cache.has(ROL_ANTIMEMBER_ID)) {
                 await miembro.roles.remove(ROL_ANTIMEMBER_ID);
             }
+
             await interaction.reply({ content: '🎉 ¡Bienvenido a **Enderland**!', ephemeral: true });
         } catch (error) {
-            await interaction.reply({ content: '❌ Error de jerarquía.', ephemeral: true });
+            console.error(error);
+            await interaction.reply({ content: '❌ Error de jerarquía. Sube mi rol arriba de los demás.', ephemeral: true });
         }
-    }
-
-    // 2. Lógica del Modal (Envío del Embed Personalizado)
-    if (interaction.isModalSubmit() && interaction.customId === 'embed_modal') {
-        const titulo = interaction.fields.getTextInputValue('embed_titulo');
-        const desc = interaction.fields.getTextInputValue('embed_desc');
-        const color = interaction.fields.getTextInputValue('embed_color') || '#5865F2';
-
-        const customEmbed = new EmbedBuilder()
-            .setTitle(titulo)
-            .setDescription(desc)
-            .setColor(color)
-            .setFooter({ text: 'Enderland Network' });
-
-        await interaction.channel.send({ embeds: [customEmbed] });
-        await interaction.reply({ content: '✅ Embed enviado con éxito.', ephemeral: true });
     }
 });
 
@@ -72,84 +80,89 @@ client.on('messageCreate', async (message) => {
     const args = message.content.slice(1).trim().split(/ +/);
     const command = args.shift().toLowerCase();
 
-    // COMANDOS PRIVADOS (Solo Polagodd)
-    const comandosAdmin = ['setup', 'msg', 'clean', 'embed'];
+    // 🔒 COMANDOS PRIVADOS (Solo Polagodd)
+    const comandosAdmin = ['setup', 'msg', 'clean', 'texto'];
 
     if (comandosAdmin.includes(command)) {
-        if (message.author.id !== MI_ID) return message.reply('❌ No tienes permiso.');
-
-        // COMANDO EMBED CON VENTANA EMERGENTE
-        if (command === 'embed') {
-            const modal = new ModalBuilder()
-                .setCustomId('embed_modal')
-                .setTitle('Crear Embed Personalizado');
-
-            const inputTitulo = new TextInputBuilder()
-                .setCustomId('embed_titulo')
-                .setLabel("Título del Embed")
-                .setStyle(TextInputStyle.Short)
-                .setRequired(true);
-
-            const inputDesc = new TextInputBuilder()
-                .setCustomId('embed_desc')
-                .setLabel("Descripción / Mensaje")
-                .setStyle(TextInputStyle.Paragraph)
-                .setRequired(true);
-
-            const inputColor = new TextInputBuilder()
-                .setCustomId('embed_color')
-                .setLabel("Color Hex (Ej: #ff0000)")
-                .setStyle(TextInputStyle.Short)
-                .setRequired(false);
-
-            modal.addComponents(
-                new ActionRowBuilder().addComponents(inputTitulo),
-                new ActionRowBuilder().addComponents(inputDesc),
-                new ActionRowBuilder().addComponents(inputColor)
-            );
-
-            await message.delete();
-            return interaction = await message.channel.send('⚠️ Usa comandos de barra si esto falla, o espera el modal...').then(m => {
-                // En discord.js v14 para enviar un modal desde un mensaje se requiere una interacción.
-                // Como !embed es un mensaje, lo ideal es usar slash commands, pero aquí te dejo la opción de msg simple:
-                message.reply("Para usar el creador visual, escribe algo y presiona el botón (Próximamente mejorado con Slash Commands)");
-            });
+        if (message.author.id !== MI_ID) {
+            return message.reply('❌ No tienes permiso para usar comandos de administrador.');
         }
 
+        // COMANDO !texto (Anteriormente embed)
+        if (command === 'texto') {
+            const contenido = message.content.slice(7); // Quita "!texto "
+            const partes = contenido.split('|');
+
+            if (partes.length < 2) {
+                return message.reply('⚠️ **Uso:** `!texto Titulo | Descripción | ColorHex`');
+            }
+
+            const titulo = partes[0].trim();
+            const desc = partes[1].trim();
+            const color = partes[2] ? partes[2].trim() : '#5865F2';
+
+            const customEmbed = new EmbedBuilder()
+                .setTitle(titulo)
+                .setDescription(desc)
+                .setColor(color.startsWith('#') ? color : '#5865F2')
+                .setFooter({ text: 'Enderland Network', iconURL: client.user.displayAvatarURL() });
+
+            await message.channel.send({ embeds: [customEmbed] });
+            return message.delete();
+        }
+
+        // COMANDO !clean
         if (command === 'clean') {
             let cantidad = args[0] === 'all' ? 100 : parseInt(args[0]);
-            if (isNaN(cantidad)) return message.reply('⚠️ Pon un número.');
-            await message.channel.bulkDelete(cantidad, true);
-            return message.channel.send(`🧹 Limpieza completada.`).then(m => setTimeout(() => m.delete(), 3000));
+            if (isNaN(cantidad)) return message.reply('⚠️ Pon un número o "all".');
+
+            try {
+                await message.channel.bulkDelete(cantidad, true);
+                const msg = await message.channel.send(`🧹 Se han borrado los mensajes.`);
+                setTimeout(() => msg.delete(), 3000);
+            } catch (e) {
+                message.reply('❌ Solo puedo borrar mensajes recientes (menos de 14 días).');
+            }
+            return;
         }
 
+        // COMANDO !setup
         if (command === 'setup') {
             const embed = new EmbedBuilder()
                 .setColor('#5865F2')
                 .setTitle('『✅』 SISTEMA DE VERIFICACIÓN')
-                .setDescription('¡Bienvenido a **Enderland Network**!\n\nHaz clic abajo para acceder.');
+                .setDescription('Bienvenido a **Enderland Network**. Haz clic abajo para entrar.');
+
             const fila = new ActionRowBuilder().addComponents(
                 new ButtonBuilder().setCustomId('verificar_btn').setLabel('Verificarse').setStyle(ButtonStyle.Success).setEmoji('✅')
             );
+
             await message.channel.send({ embeds: [embed], components: [fila] });
+            return message.delete();
+        }
+
+        // COMANDO !msg
+        if (command === 'msg') {
+            const canal = message.mentions.channels.first();
+            const texto = args.slice(1).join(' ');
+            if (!canal || !texto) return message.reply('⚠️ Uso: `!msg #canal texto`');
+            canal.send(texto);
             return message.delete();
         }
     }
 
-    // COMANDO INFO (Público)
+    // 📢 COMANDOS PÚBLICOS
     if (command === 'info') {
         const infoEmbed = new EmbedBuilder()
             .setColor('#2ecc71')
-            .setTitle('📚 Comandos de Enderland Bot')
+            .setTitle('📚 Enderland Bot - Información')
             .addFields(
-                { name: '📍 !ip', value: 'Muestra la dirección para entrar al servidor.', inline: true },
-                { name: '🌍 !web', value: 'Enlace a nuestra página oficial.', inline: true },
-                { name: '🛒 !tienda', value: 'Link de la tienda para rangos y unbans.', inline: true },
-                { name: '🧹 !clean [n]', value: '(Admin) Borra mensajes del chat.', inline: true },
-                { name: '📝 !embed', value: '(Admin) Crea un mensaje decorado.', inline: true }
-            )
-            .setFooter({ text: 'Enderland Network • 2026' });
-        
+                { name: '📍 !ip', value: 'Dirección del servidor.', inline: true },
+                { name: '🌍 !web', value: 'Link de la web.', inline: true },
+                { name: '🛒 !tienda', value: 'Tienda oficial.', inline: true },
+                { name: '🧹 !clean [n]', value: '(Admin) Borrar chat.', inline: true },
+                { name: '📝 !texto [T|D|C]', value: '(Admin) Crear mensaje decorado.', inline: false }
+            );
         return message.reply({ embeds: [infoEmbed] });
     }
 
