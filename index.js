@@ -23,15 +23,14 @@ const TOKEN = process.env.DISCORD_TOKEN;
 const SERVER_IP = 'play.enderland.org';
 const WEB_URL = 'https://enderland.org';
 
-// ⚠️ REEMPLAZA ESTOS IDs CON LOS TUYOS
-const MI_ID = '715742569312550933'; // Tu ID de Discord (Polagodd)
-const ROL_MIEMBRO_ID = '1468135397677727870'; // ID de 『👤』 Miembro
-const ROL_ANTIMEMBER_ID = '1468200449466306765'; // ID de antimember
+// ⚠️ IDs CONFIGURADOS
+const MI_ID = '715742569312550933'; 
+const ROL_MIEMBRO_ID = '1468135397677727870'; 
+const ROL_ANTIMEMBER_ID = '1468200449466306765'; 
 
 client.once('ready', () => {
     console.log(`✅ Enderland Bot encendido como ${client.user.tag}`);
     
-    // ESTADO DINÁMICO (JUGADORES EN VIVO)
     setInterval(() => {
         https.get(`https://api.mcstatus.io/v2/status/java/${SERVER_IP}`, (res) => {
             let data = '';
@@ -42,7 +41,7 @@ client.once('ready', () => {
                     if (info.online) {
                         client.user.setActivity(`${info.players.online}/${info.players.max} en ${SERVER_IP}`, { type: 0 });
                     }
-                } catch (e) { /* Error silencioso */ }
+                } catch (e) { }
             });
         });
     }, 60000);
@@ -60,7 +59,6 @@ client.on('interactionCreate', async (interaction) => {
                 return interaction.reply({ content: '✅ Ya estás verificado.', ephemeral: true });
             }
 
-            // ACCIÓN: Poner Miembro y quitar Antimember
             await miembro.roles.add(ROL_MIEMBRO_ID);
             if (miembro.roles.cache.has(ROL_ANTIMEMBER_ID)) {
                 await miembro.roles.remove(ROL_ANTIMEMBER_ID);
@@ -82,7 +80,6 @@ client.on('messageCreate', async (message) => {
     const args = message.content.slice(1).trim().split(/ +/);
     const command = args.shift().toLowerCase();
 
-    // COMANDOS PRIVADOS (Solo Polagodd puede usarlos)
     const comandosAdmin = ['setup', 'embed', 'msg'];
 
     if (comandosAdmin.includes(command)) {
@@ -90,7 +87,6 @@ client.on('messageCreate', async (message) => {
             return message.reply('❌ No tienes permiso para usar los comandos del dueño.');
         }
 
-        // COMANDO SETUP (ENVÍA EL EMBED CON EL BOTÓN)
         if (command === 'setup') {
             const embed = new EmbedBuilder()
                 .setColor('#5865F2')
@@ -118,7 +114,6 @@ client.on('messageCreate', async (message) => {
             return message.delete();
         }
 
-        // COMANDO MSG
         if (command === 'msg') {
             const canal = message.mentions.channels.first();
             const texto = args.slice(1).join(' ');
@@ -129,7 +124,7 @@ client.on('messageCreate', async (message) => {
         }
     }
 
-    // COMANDOS PÚBLICOS (Para todos)
+    // COMANDOS PÚBLICOS
     if (command === 'ip') return message.reply(`📍 IP: \`${SERVER_IP}\` (1.16.x - 1.21)`);
     if (command === 'web') return message.reply(`🌍 **Portal:** ${WEB_URL}`);
 });
