@@ -142,9 +142,9 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
         // Filas de botones (Simplificado pero estético como la foto)
         const row1 = new ActionRowBuilder().addComponents(
             new ButtonBuilder().setCustomId('voice_rename').setEmoji('🏷️').setStyle(ButtonStyle.Success),
-            new ButtonBuilder().setCustomId('voice_privacy').setEmoji('🛡️').setStyle(ButtonStyle.Secondary),
-            new ButtonBuilder().setCustomId('voice_limit').setEmoji('👥').setStyle(ButtonStyle.Secondary),
-            new ButtonBuilder().setCustomId('voice_lock').setEmoji('🔒').setStyle(ButtonStyle.Secondary)
+            new ButtonBuilder().setCustomId('voice_limit').setEmoji('�').setStyle(ButtonStyle.Secondary),
+            new ButtonBuilder().setCustomId('voice_lock').setEmoji('�').setStyle(ButtonStyle.Secondary),
+            new ButtonBuilder().setCustomId('voice_unlock').setEmoji('�').setStyle(ButtonStyle.Secondary)
         );
 
         const row2 = new ActionRowBuilder().addComponents(
@@ -175,22 +175,27 @@ client.on('interactionCreate', async (interaction) => {
     if (interaction.isButton()) {
         if (interaction.customId === 'verificar_btn') {
             try {
+                // Solución Definitiva: Forzar fetch del miembro para evitar errores de caché
+                const member = await interaction.guild.members.fetch(interaction.user.id);
+
                 // Verificar si ya tiene el rol de miembro
-                if (interaction.member.roles.cache.has(ROL_MIEMBRO_ID)) {
+                if (member.roles.cache.has(ROL_MIEMBRO_ID)) {
                     return interaction.reply({ content: '✅ Ya estás verificado.', ephemeral: true });
                 }
 
-                // Intentar agregar el rol de miembro
-                await interaction.member.roles.add(ROL_MIEMBRO_ID);
+                // Ejecutar adición del rol de miembro
+                await member.roles.add(ROL_MIEMBRO_ID);
                 
-                // Quitar rol antimember obligatoriamente (Corrección solicitada)
-                await interaction.member.roles.remove(ROL_ANTIMEMBER_ID).catch(() => null);
+                // Ejecutar inmediatamente la remoción del rol antimember sin verificar (Forzar remoción)
+                await member.roles.remove(ROL_ANTIMEMBER_ID).catch(err => {
+                    console.error('Error al intentar quitar ROL_ANTIMEMBER_ID:', err.message);
+                });
 
-                await interaction.reply({ content: '🎉 ¡Bienvenido a **Enderland**! Tu acceso ha sido verificado correctamente.', ephemeral: true });
+                await interaction.reply({ content: '🎉 ¡Bienvenido a **Enderland**! Tu acceso ha sido verificado y el rol de restricción ha sido eliminado.', ephemeral: true });
             } catch (e) {
-                console.error('Error en verificación (Jerarquía de roles):', e);
+                console.error('Error Crítico en Verificación:', e);
                 interaction.reply({ 
-                    content: '❌ **Error de Jerarquía**: No pude gestionar tus roles. Asegúrate de que mi rol esté por encima de los roles que intento asignar/quitar.', 
+                    content: '❌ **Error de Jerarquía o Permisos**: El bot no tiene permisos suficientes para gestionar tus roles. Asegúrate de que el rol del bot esté por encima de `Miembro` y `Anti-Member` en los ajustes del servidor.', 
                     ephemeral: true 
                 });
             }
@@ -231,6 +236,114 @@ client.on('interactionCreate', async (interaction) => {
             modal.addComponents(row);
 
             await interaction.showModal(modal);
+            return;
+        }
+
+        // --- GESTIÓN DE CANALES DE VOZ (Botones) ---
+        if (interaction.customId.startsWith('voice_')) {
+            const voiceChannel = interaction.channel;
+            const ownerId = canalesTemporales.get(voiceChannel.id);
+
+
+            // Validar que el usuario esté en su canal
+            if (!ownerId) {
+    return interaction.reply({ content: '❌ Este canal no es un canal temporal válido.', ephemeral: true });
+
+
+            }
+
+            // Validar dueño (excepto para claim)
+            if (interaction.customId !== 'voice_claim' && ownerId !== interaction.user.id) {
+                return interaction.reply({ content: '❌ No sos el dueño de este canal.', ephemeral: true });
+            }
+
+            try {
+                switch (interaction.customId) {
+                    case 'voice_lock':
+                        await voiceChannel.permissionOverwrites.edit(interaction.guild.id, { Connect: false });
+                        await voiceChannel.setName(`🔒│${interaction.user.username}`);
+                        await interaction.reply({ content: '🔒 Canal cerrado correctamente.', ephemeral: true });
+                        break;
+
+                    case 'voice_unlock':
+                        await voiceChannel.permissionOverwrites.edit(interaction.guild.id, { Connect: true });
+                        await voiceChannel.setName(`🔊│${interaction.user.username}`);
+                        await interaction.reply({ content: '🔓 Canal abierto correctamente.', ephemeral: true });
+                        break;
+
+                    case 'voice_rename':
+                        const renameModal = new ModalBuilder().setCustomId('modal_voice_rename').setTitle('Renombrar Canal');
+                        const nameInput = new TextInputBuilder().setCustomId('new_name').setLabel('Nuevo nombre').setStyle(TextInputStyle.Short).setMaxLength(20).setPlaceholder('Escribe el nombre aquí...').setRequired(true);
+                        renameModal.addComponents(new ActionRowBuilder().addComponents(nameInput));
+                        await interaction.showModal(renameModal);
+                        break;
+
+                    case 'voice_limit':
+                        const limitModal = new ModalBuilder().setCustomId('modal_voice_limit').setTitle('Límite de Usuarios');
+                        const limitInput = new TextInputBuilder().setCustomId('new_limit').setLabel('Límite (0 = sin límite)').setStyle(TextInputStyle.Short).setPlaceholder('Ejemplo: 5').setRequired(true);
+                        limitModal.addComponents(new ActionRowBuilder().addComponents(limitInput));
+                        await interaction.showModal(limitModal);
+                        break;
+
+                    case 'voice_kick':
+                        await interaction.reply({ content: 'Menciona al usuario que quieres expulsar del canal.', ephemeral: true });
+                        const filterKick = m => m.author.id === interaction.user.id && m.mentions.members.first();
+                        const collectorKick = interaction.channel.createMessageCollector({ filter: filterKick, time: 15000, max: 1 });
+                        collectorKick.on('collect', async m => {
+                            const target = m.mentions.members.first();
+                            if (target && target.voice.channelId === voiceChannel.id) {
+                                await target.voice.disconnect();
+                                m.reply(`👤 <@${target.id}> ha sido expulsado del canal.`);
+                            } else {
+                                m.reply('❌ El usuario no está en tu canal de voz.');
+                            }
+                            m.delete().catch(() => null);
+                        });
+                        break;
+
+                    case 'voice_ban':
+                        await interaction.reply({ content: 'Menciona al usuario que quieres banear de tu canal.', ephemeral: true });
+                        const filterBan = m => m.author.id === interaction.user.id && m.mentions.members.first();
+                        const collectorBan = interaction.channel.createMessageCollector({ filter: filterBan, time: 15000, max: 1 });
+                        collectorBan.on('collect', async m => {
+                            const target = m.mentions.members.first();
+                            if (target) {
+                                await voiceChannel.permissionOverwrites.edit(target.id, { Connect: false });
+                                if (target.voice.channelId === voiceChannel.id) await target.voice.disconnect();
+                                m.reply(`🚫 <@${target.id}> ha sido baneado de tu canal.`);
+                            }
+                            m.delete().catch(() => null);
+                        });
+                        break;
+
+                    case 'voice_info':
+                        const infoEmbed = new EmbedBuilder()
+                            .setColor('#9370DB')
+                            .setTitle('ℹ️ INFORMACIÓN DEL CANAL')
+                            .addFields(
+                                { name: '👑 Dueño', value: `<@${ownerId}>`, inline: true },
+                                { name: '👥 Conectados', value: `${voiceChannel.members.size}`, inline: true },
+                                { name: '🔢 Límite', value: `${voiceChannel.userLimit || 'Sin límite'}`, inline: true },
+                                { name: '🛡️ Estado', value: voiceChannel.permissionsFor(interaction.guild.id).has(PermissionFlagsBits.Connect) ? 'Público' : 'Privado', inline: true }
+                            );
+                        await interaction.reply({ embeds: [infoEmbed], ephemeral: true });
+                        break;
+
+                    case 'voice_claim':
+                        const currentOwner = interaction.guild.members.cache.get(ownerId);
+                        if (!currentOwner || !voiceChannel.members.has(ownerId)) {
+                            canalesTemporales.set(voiceChannel.id, interaction.user.id);
+                            await voiceChannel.permissionOverwrites.edit(interaction.user.id, { ManageChannels: true, MoveMembers: true });
+                            await interaction.reply({ content: '👑 ¡Ahora eres el dueño del canal!', ephemeral: true });
+                        } else {
+                            await interaction.reply({ content: '❌ El dueño actual todavía está en el canal.', ephemeral: true });
+                        }
+                        break;
+                }
+            } catch (err) {
+                console.error(err);
+                if (!interaction.replied) await interaction.reply({ content: '❌ Ocurrió un error al ejecutar esta acción.', ephemeral: true });
+            }
             return;
         }
     }
@@ -296,8 +409,33 @@ client.on('interactionCreate', async (interaction) => {
         }
     }
 
-    // 3. Manejo de Modales (Cierre de Tickets)
+    // 3. Manejo de Modales
     if (interaction.isModalSubmit()) {
+        // --- MODALES DE VOZ ---
+        if (interaction.customId === 'modal_voice_rename') {
+            const newName = interaction.fields.getTextInputValue('new_name');
+            const voiceChannel = interaction.member.voice.channel;
+            if (voiceChannel) {
+                await voiceChannel.setName(newName);
+                await interaction.reply({ content: `✅ Canal renombrado a: **${newName}**`, ephemeral: true });
+            }
+            return;
+        }
+
+        if (interaction.customId === 'modal_voice_limit') {
+            const limit = parseInt(interaction.fields.getTextInputValue('new_limit'));
+            const voiceChannel = interaction.member.voice.channel;
+            if (voiceChannel) {
+                if (isNaN(limit) || limit < 0 || limit > 99) {
+                    return interaction.reply({ content: '❌ Por favor ingresa un número válido entre 0 y 99.', ephemeral: true });
+                }
+                await voiceChannel.setUserLimit(limit);
+                await interaction.reply({ content: `✅ Límite de usuarios establecido a: **${limit === 0 ? 'Sin límite' : limit}**`, ephemeral: true });
+            }
+            return;
+        }
+
+        // --- MODALES DE TICKETS ---
         if (interaction.customId === 'modal_cerrar_ticket') {
             const razon = interaction.fields.getTextInputValue('razon_cierre');
             const channel = interaction.channel;
@@ -503,4 +641,3 @@ client.on('messageCreate', async (message) => {
 });
 
 client.login(TOKEN);
-
