@@ -28,8 +28,8 @@ const ROL_MIEMBRO_ID = '1468135397677727870';
 const ROL_ANTIMEMBER_ID = '1468200449466306765'; 
 
 // --- CONFIGURACIÓN VOZ TEMPORAL ---
-const CANAL_CREADOR_VOZ_ID = 'ID_AQUI'; // Canal "Click para crear"
-const CATEGORIA_VOZ_ID = 'ID_AQUI';       // Categoría donde se crean los canales
+const CANAL_CREADOR_VOZ_ID = '1468159361724584009'; // Canal "Click para crear"
+const CATEGORIA_VOZ_ID = '1468159360214765653';       // Categoría donde se crean los canales
 const canalesTemporales = new Map();     // Para rastrear dueños de canales
 
 // --- CONFIGURACIÓN SORTEOS ---
@@ -40,9 +40,9 @@ let sorteoActivo = {
 };
 
 // --- CONFIGURACIÓN TICKETS ---
-const CATEGORIA_TICKETS_ID = 'ID_AQUI'; // ID de la categoría donde se crearán los tickets
-const CANAL_LOGS_ID = 'ID_AQUI';       // ID del canal #logs-ticket
-const ROL_STAFF_ID = 'ID_AQUI';        // ID del rol de Staff que puede ver los tickets
+const CATEGORIA_TICKETS_ID = '1468130064217542750'; // ID de la categoría donde se crearán los tickets
+const CANAL_LOGS_ID = '1468150762810114118';       // ID del canal #logs-ticket
+const ROL_STAFF_ID = '1468130937681477776';        // ID del rol de Staff que puede ver los tickets
 
 // Función para consultar MCSTATUS
 async function getMCStatus() {
@@ -503,3 +503,4 @@ client.on('messageCreate', async (message) => {
 });
 
 client.login(TOKEN);
+
