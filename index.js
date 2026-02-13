@@ -1,4 +1,4 @@
-const { Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+const { Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder, ModalBuilder, TextInputBuilder, TextInputStyle, PermissionFlagsBits } = require('discord.js');
 const https = require('https');
 const express = require('express');
 
@@ -26,6 +26,11 @@ const DISCORD_INVITE = 'https://discord.gg/SFMFn5mDds';
 const ROL_MIEMBRO_ID = '1468135397677727870'; 
 const ROL_ANTIMEMBER_ID = '1468200449466306765'; 
 
+// --- CONFIGURACIÓN TICKETS ---
+const CATEGORIA_TICKETS_ID = 'ID_AQUI'; // ID de la categoría donde se crearán los tickets
+const CANAL_LOGS_ID = 'ID_AQUI';       // ID del canal #logs-ticket
+const ROL_STAFF_ID = 'ID_AQUI';        // ID del rol de Staff que puede ver los tickets
+
 // Función para consultar MCSTATUS
 async function getMCStatus() {
     return new Promise((resolve) => {
@@ -49,18 +54,161 @@ client.once('ready', () => {
     }, 60000);
 });
 
-// --- MANEJO DE INTERACCIONES (Solo Botones) ---
+// --- MANEJO DE INTERACCIONES ---
 client.on('interactionCreate', async (interaction) => {
-    if (!interaction.isButton()) return;
+    // 1. Manejo de Botones
+    if (interaction.isButton()) {
+        if (interaction.customId === 'verificar_btn') {
+            try {
+                if (interaction.member.roles.cache.has(ROL_MIEMBRO_ID)) return interaction.reply({ content: '✅ Ya estás verificado.', ephemeral: true });
+                await interaction.member.roles.add(ROL_MIEMBRO_ID);
+                if (interaction.member.roles.cache.has(ROL_ANTIMEMBER_ID)) await interaction.member.roles.remove(ROL_ANTIMEMBER_ID);
+                await interaction.reply({ content: '🎉 ¡Bienvenido a **Enderland**!', ephemeral: true });
+            } catch (e) {
+                interaction.reply({ content: '❌ Error de jerarquía. Pon mi rol arriba de todos.', ephemeral: true });
+            }
+            return;
+        }
 
-    if (interaction.customId === 'verificar_btn') {
-        try {
-            if (interaction.member.roles.cache.has(ROL_MIEMBRO_ID)) return interaction.reply({ content: '✅ Ya estás verificado.', ephemeral: true });
-            await interaction.member.roles.add(ROL_MIEMBRO_ID);
-            if (interaction.member.roles.cache.has(ROL_ANTIMEMBER_ID)) await interaction.member.roles.remove(ROL_ANTIMEMBER_ID);
-            await interaction.reply({ content: '🎉 ¡Bienvenido a **Enderland**!', ephemeral: true });
-        } catch (e) {
-            interaction.reply({ content: '❌ Error de jerarquía. Pon mi rol arriba de todos.', ephemeral: true });
+        // Reclamar Ticket
+        if (interaction.customId === 'reclamar_ticket') {
+            if (!interaction.member.roles.cache.has(ROL_STAFF_ID)) {
+                return interaction.reply({ content: '❌ Solo el staff puede reclamar tickets.', ephemeral: true });
+            }
+
+            const embed = EmbedBuilder.from(interaction.message.embeds[0]);
+            const row = ActionRowBuilder.from(interaction.message.components[0]);
+            
+            // Deshabilitar botón de reclamo
+            row.components[1].setDisabled(true);
+
+            await interaction.message.edit({ components: [row] });
+            await interaction.reply({ content: `👋 El staff <@${interaction.user.id}> se hará cargo de tu ticket.` });
+            return;
+        }
+
+        // Abrir Modal para cerrar ticket
+        if (interaction.customId === 'cerrar_ticket') {
+            const modal = new ModalBuilder()
+                .setCustomId('modal_cerrar_ticket')
+                .setTitle('Cerrar Ticket');
+
+            const razonInput = new TextInputBuilder()
+                .setCustomId('razon_cierre')
+                .setLabel('Razón de cierre')
+                .setStyle(TextInputStyle.Paragraph)
+                .setPlaceholder('Escribe aquí el motivo del cierre...')
+                .setRequired(true);
+
+            const row = new ActionRowBuilder().addComponents(razonInput);
+            modal.addComponents(row);
+
+            await interaction.showModal(modal);
+            return;
+        }
+    }
+
+    // 2. Manejo de Select Menu (Apertura de Tickets)
+    if (interaction.isStringSelectMenu()) {
+        if (interaction.customId === 'ticket_select') {
+            const tipo = interaction.values[0];
+            const user = interaction.user;
+            const guild = interaction.guild;
+
+            // Verificar si ya tiene un ticket abierto
+            const yaTieneTicket = guild.channels.cache.find(c => c.topic === user.id && c.parentId === CATEGORIA_TICKETS_ID);
+            if (yaTieneTicket) {
+                return interaction.reply({ content: `❌ Ya tienes un ticket abierto en <#${yaTieneTicket.id}>.`, ephemeral: true });
+            }
+
+            // Crear canal
+            const channel = await guild.channels.create({
+                name: `ticket-${user.username}`,
+                type: 0, // GuildText
+                parent: CATEGORIA_TICKETS_ID,
+                topic: user.id,
+                permissionOverwrites: [
+                    { id: guild.id, deny: [PermissionFlagsBits.ViewChannel] },
+                    { id: user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.AttachFiles] },
+                    { id: ROL_STAFF_ID, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.AttachFiles] }
+                ]
+            });
+
+            // Embed de bienvenida en el ticket
+            const embedTicket = new EmbedBuilder()
+                .setColor('#9370DB') // Morado estético
+                .setTitle('『🎫』 TICKET ABIERTO')
+                .setDescription(`Hola <@${user.id}>, gracias por contactar con el soporte de **Enderland**.\n\n` +
+                    `**Categoría:** ${tipo.toUpperCase().replace('_', ' ')}\n` +
+                    `Por favor, describe tu situación y un miembro del staff te atenderá en breve.`)
+                .setFooter({ text: 'Usa los botones de abajo para gestionar el ticket.' });
+
+            const btns = new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId('cerrar_ticket').setLabel('🔒 Cerrar Ticket').setStyle(ButtonStyle.Danger),
+                new ButtonBuilder().setCustomId('reclamar_ticket').setLabel('📜 Reclamar Ticket').setStyle(ButtonStyle.Secondary)
+            );
+
+            await channel.send({ content: `<@${user.id}> | <@&${ROL_STAFF_ID}>`, embeds: [embedTicket], components: [btns] });
+
+            // Log de apertura
+            const logChannel = guild.channels.cache.get(CANAL_LOGS_ID);
+            if (logChannel) {
+                const embedLog = new EmbedBuilder()
+                    .setColor('#00FF00')
+                    .setTitle('📥 Ticket Abierto')
+                    .addFields(
+                        { name: 'Nombre', value: channel.name, inline: true },
+                        { name: 'Creador', value: `<@${user.id}>`, inline: true },
+                        { name: 'Tipo', value: tipo, inline: true },
+                        { name: 'Fecha', value: `<t:${Math.floor(Date.now() / 1000)}:F>`, inline: false }
+                    );
+                await logChannel.send({ embeds: [embedLog] });
+            }
+
+            await interaction.reply({ content: `✅ Ticket creado correctamente: <#${channel.id}>`, ephemeral: true });
+        }
+    }
+
+    // 3. Manejo de Modales (Cierre de Tickets)
+    if (interaction.isModalSubmit()) {
+        if (interaction.customId === 'modal_cerrar_ticket') {
+            const razon = interaction.fields.getTextInputValue('razon_cierre');
+            const channel = interaction.channel;
+            const user = interaction.user;
+            const creatorId = channel.topic;
+
+            await interaction.reply({ content: 'Cerrando ticket...' });
+
+            // Log de cierre
+            const logChannel = interaction.guild.channels.cache.get(CANAL_LOGS_ID);
+            if (logChannel) {
+                const embedLog = new EmbedBuilder()
+                    .setColor('#FF0000')
+                    .setTitle('📤 Ticket Cerrado')
+                    .addFields(
+                        { name: 'Nombre', value: channel.name, inline: true },
+                        { name: 'Autor', value: `<@${creatorId}>`, inline: true },
+                        { name: 'Cerrado por', value: `<@${user.id}>`, inline: true },
+                        { name: 'Razón', value: razon, inline: false },
+                        { name: 'Apertura', value: `<t:${Math.floor(channel.createdTimestamp / 1000)}:F>`, inline: true },
+                        { name: 'Cierre', value: `<t:${Math.floor(Date.now() / 1000)}:F>`, inline: true }
+                    );
+                
+                const btnLog = new ActionRowBuilder().addComponents(
+                    new ButtonBuilder().setLabel('Ver Transcripción').setStyle(ButtonStyle.Link).setURL(WEB_URL) // Placeholder para transcripción
+                );
+
+                await logChannel.send({ embeds: [embedLog], components: [btnLog] });
+            }
+
+            // Borrar canal después de 5 segundos
+            setTimeout(async () => {
+                try {
+                    await channel.delete();
+                } catch (e) {
+                    console.error('Error al borrar el canal de ticket:', e);
+                }
+            }, 5000);
         }
     }
 });
@@ -135,6 +283,34 @@ client.on('messageCreate', async (message) => {
             const embed = new EmbedBuilder().setColor('#5865F2').setTitle('『✅』 VERIFICACIÓN').setDescription('Haz clic abajo para entrar.');
             const btn = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('verificar_btn').setLabel('Verificarse').setStyle(ButtonStyle.Success).setEmoji('✅'));
             await message.channel.send({ embeds: [embed], components: [btn] });
+            return message.delete();
+        }
+
+        if (command === 'setup-tickets') {
+            const embed = new EmbedBuilder()
+                .setColor('#FFD700') // Dorado/Amarillo estético
+                .setTitle('『🎫』 CENTRO DE SOPORTE - ENDERLAND')
+                .setDescription('¿Necesitás comprar, reclamar o reportar algo?\n\n' +
+                    '🛒 **Compras**\n' +
+                    '👥 **Reportes de Jugadores**\n' +
+                    '🐛 **Reporte de Bugs**\n' +
+                    '📩 **Otros**\n\n' +
+                    'Selecciona una opción en el menú de abajo para abrir un ticket.')
+                .setFooter({ text: 'Enderland Network - Sistema de Soporte' });
+
+            const menu = new ActionRowBuilder().addComponents(
+                new StringSelectMenuBuilder()
+                    .setCustomId('ticket_select')
+                    .setPlaceholder('Despliegue el menu.')
+                    .addOptions([
+                        { label: 'Compras', emoji: '🛒', value: 'compras', description: 'Problemas o dudas con la tienda.' },
+                        { label: 'Reportes de Jugadores', emoji: '👥', value: 'reporte_jugador', description: 'Reporta a un usuario por romper las reglas.' },
+                        { label: 'Reporte de Bugs', emoji: '🐛', value: 'reporte_bug', description: 'Reporta un error técnico del servidor.' },
+                        { label: 'Otros', emoji: '📩', value: 'otros', description: 'Cualquier otro tipo de consulta.' }
+                    ])
+            );
+
+            await message.channel.send({ embeds: [embed], components: [menu] });
             return message.delete();
         }
 
