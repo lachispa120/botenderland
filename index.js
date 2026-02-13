@@ -12,7 +12,8 @@ const client = new Client({
         GatewayIntentBits.Guilds,
         GatewayIntentBits.GuildMessages,
         GatewayIntentBits.MessageContent,
-        GatewayIntentBits.GuildMembers
+        GatewayIntentBits.GuildMembers,
+        GatewayIntentBits.GuildVoiceStates
     ]
 });
 
@@ -26,6 +27,11 @@ const DISCORD_INVITE = 'https://discord.gg/SFMFn5mDds';
 const ROL_MIEMBRO_ID = '1468135397677727870'; 
 const ROL_ANTIMEMBER_ID = '1468200449466306765'; 
 
+// --- CONFIGURACIÓN VOZ TEMPORAL ---
+const CANAL_CREADOR_VOZ_ID = 'ID_AQUI'; // Canal "Click para crear"
+const CATEGORIA_VOZ_ID = 'ID_AQUI';       // Categoría donde se crean los canales
+const canalesTemporales = new Map();     // Para rastrear dueños de canales
+
 // --- CONFIGURACIÓN SORTEOS ---
 let sorteoActivo = {
     meta: null,
@@ -34,9 +40,9 @@ let sorteoActivo = {
 };
 
 // --- CONFIGURACIÓN TICKETS ---
-const CATEGORIA_TICKETS_ID = '1468130064217542750'; // ID de la categoría donde se crearán los tickets
-const CANAL_LOGS_ID = '1468150762810114118';       // ID del canal #logs-ticket
-const ROL_STAFF_ID = '1468130937681477776';        // ID del rol de Staff que puede ver los tickets
+const CATEGORIA_TICKETS_ID = 'ID_AQUI'; // ID de la categoría donde se crearán los tickets
+const CANAL_LOGS_ID = 'ID_AQUI';       // ID del canal #logs-ticket
+const ROL_STAFF_ID = 'ID_AQUI';        // ID del rol de Staff que puede ver los tickets
 
 // Función para consultar MCSTATUS
 async function getMCStatus() {
@@ -97,6 +103,72 @@ client.on('guildMemberAdd', async (member) => {
     }
 });
 
+// --- EVENTO DE VOZ (Canales Temporales) ---
+client.on('voiceStateUpdate', async (oldState, newState) => {
+    const user = newState.member.user;
+    const guild = newState.guild;
+
+    // 1. Lógica de Creación
+    if (newState.channelId === CANAL_CREADOR_VOZ_ID) {
+        const channel = await guild.channels.create({
+            name: `🔊 │ ${user.username}`,
+            type: 2, // GuildVoice
+            parent: CATEGORIA_VOZ_ID,
+            permissionOverwrites: [
+                { id: guild.id, allow: [PermissionFlagsBits.ViewChannel] },
+                { id: user.id, allow: [PermissionFlagsBits.ManageChannels, PermissionFlagsBits.MoveMembers, PermissionFlagsBits.MuteMembers, PermissionFlagsBits.DeafenMembers] }
+            ]
+        });
+
+        await newState.member.voice.setChannel(channel);
+        canalesTemporales.set(channel.id, user.id);
+
+        // Enviar Panel de Control (Réplica de la foto)
+        const embed = new EmbedBuilder()
+            .setColor('#9370DB')
+            .setTitle('✅ CANAL CREADO CON ÉXITO')
+            .setDescription(`Este es tu canal de voz temporal <@${user.id}>, puedes configurarlo en esta interfaz.\n\n` +
+                '🧠 **LOS AJUSTES SE CONSERVAN**\n' +
+                'Siempre que hagas un nuevo canal se guardarán los ajustes que hiciste la primera vez.\n\n' +
+                '🧩 **CONFIGURACIÓN DE SALA**\n' +
+                'Una vez creado el canal de voz podrás manejar tu propio canal desde esta interfaz.\n\n' +
+                '📄 **INFORMACIÓN DEL CANAL**\n' +
+                `**Canal:** <#${channel.id}>\n` +
+                `**Propietario:** <@${user.id}>\n` +
+                '**Privacidad:** Público · cualquiera puede entrar\n' +
+                '**Chat:** Abierto · todos pueden escribir')
+            .addFields({ name: '🎮 Panel de control', value: 'Usa los botones de abajo para gestionar tu sala.' });
+
+        // Filas de botones (Simplificado pero estético como la foto)
+        const row1 = new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId('voice_rename').setEmoji('🏷️').setStyle(ButtonStyle.Success),
+            new ButtonBuilder().setCustomId('voice_privacy').setEmoji('🛡️').setStyle(ButtonStyle.Secondary),
+            new ButtonBuilder().setCustomId('voice_limit').setEmoji('👥').setStyle(ButtonStyle.Secondary),
+            new ButtonBuilder().setCustomId('voice_lock').setEmoji('🔒').setStyle(ButtonStyle.Secondary)
+        );
+
+        const row2 = new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId('voice_kick').setEmoji('👤').setStyle(ButtonStyle.Danger),
+            new ButtonBuilder().setCustomId('voice_ban').setEmoji('🚫').setStyle(ButtonStyle.Danger),
+            new ButtonBuilder().setCustomId('voice_info').setEmoji('ℹ️').setStyle(ButtonStyle.Success),
+            new ButtonBuilder().setCustomId('voice_claim').setEmoji('👑').setStyle(ButtonStyle.Secondary)
+        );
+
+        await channel.send({ content: `<@${user.id}>`, embeds: [embed], components: [row1, row2] });
+    }
+
+    // 2. Lógica de Borrado
+    if (oldState.channelId && !newState.channelId || oldState.channelId && newState.channelId) {
+        const oldChannel = oldState.channel;
+        if (oldChannel && canalesTemporales.has(oldChannel.id)) {
+            if (oldChannel.members.size === 0) {
+                canalesTemporales.delete(oldChannel.id);
+                await oldChannel.delete().catch(() => null);
+            }
+        }
+    }
+});
+
 // --- MANEJO DE INTERACCIONES ---
 client.on('interactionCreate', async (interaction) => {
     // 1. Manejo de Botones
@@ -108,13 +180,11 @@ client.on('interactionCreate', async (interaction) => {
                     return interaction.reply({ content: '✅ Ya estás verificado.', ephemeral: true });
                 }
 
-                // Intentar agregar el rol de miembro y quitar el de anti-member
+                // Intentar agregar el rol de miembro
                 await interaction.member.roles.add(ROL_MIEMBRO_ID);
                 
-                // Quitar rol antimember obligatoriamente
-                if (interaction.member.roles.cache.has(ROL_ANTIMEMBER_ID)) {
-                    await interaction.member.roles.remove(ROL_ANTIMEMBER_ID);
-                }
+                // Quitar rol antimember obligatoriamente (Corrección solicitada)
+                await interaction.member.roles.remove(ROL_ANTIMEMBER_ID).catch(() => null);
 
                 await interaction.reply({ content: '🎉 ¡Bienvenido a **Enderland**! Tu acceso ha sido verificado correctamente.', ephemeral: true });
             } catch (e) {
@@ -350,6 +420,21 @@ client.on('messageCreate', async (message) => {
             return message.channel.send({ embeds: [embed] });
         }
 
+        if (command === 'anular-sorteo') {
+            if (!sorteoActivo.meta) {
+                return message.reply({ 
+                    embeds: [new EmbedBuilder().setColor('#9370DB').setDescription('❌ No hay ningún sorteo activo para anular.')] 
+                });
+            }
+
+            sorteoActivo = { meta: null, premio: null, canalId: null };
+            const embed = new EmbedBuilder()
+                .setColor('#9370DB')
+                .setDescription('🚫 El sorteo activo ha sido anulado y la meta se ha limpiado.');
+            
+            return message.reply({ embeds: [embed] });
+        }
+
         if (command === 'clean') {
             let cant = args[0] === 'all' ? 100 : parseInt(args[0]);
             if (isNaN(cant) || cant <= 0) return message.reply('⚠️ Uso: `!clean [n]` o `!clean all`.');
@@ -418,4 +503,3 @@ client.on('messageCreate', async (message) => {
 });
 
 client.login(TOKEN);
-
