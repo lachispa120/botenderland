@@ -26,10 +26,17 @@ const DISCORD_INVITE = 'https://discord.gg/SFMFn5mDds';
 const ROL_MIEMBRO_ID = '1468135397677727870'; 
 const ROL_ANTIMEMBER_ID = '1468200449466306765'; 
 
+// --- CONFIGURACIÓN SORTEOS ---
+let sorteoActivo = {
+    meta: null,
+    premio: null,
+    canalId: null
+};
+
 // --- CONFIGURACIÓN TICKETS ---
-const CATEGORIA_TICKETS_ID = '1468130064217542750'; // ID de la categoría donde se crearán los tickets
-const CANAL_LOGS_ID = '1468150762810114118';       // ID del canal #logs-ticket
-const ROL_STAFF_ID = '1468130937681477776';        // ID del rol de Staff que puede ver los tickets
+const CATEGORIA_TICKETS_ID = 'ID_AQUI'; // ID de la categoría donde se crearán los tickets
+const CANAL_LOGS_ID = 'ID_AQUI';       // ID del canal #logs-ticket
+const ROL_STAFF_ID = 'ID_AQUI';        // ID del rol de Staff que puede ver los tickets
 
 // Función para consultar MCSTATUS
 async function getMCStatus() {
@@ -54,18 +61,68 @@ client.once('ready', () => {
     }, 60000);
 });
 
+// --- EVENTO DE MIEMBROS (Sorteos) ---
+client.on('guildMemberAdd', async (member) => {
+    if (!sorteoActivo.meta) return;
+
+    const guild = member.guild;
+    const currentCount = guild.memberCount;
+
+    if (currentCount >= sorteoActivo.meta) {
+        const canal = guild.channels.cache.get(sorteoActivo.canalId);
+        if (!canal) return;
+
+        // Obtener todos los miembros (asegurarse de que estén en cache o descargarlos)
+        await guild.members.fetch();
+        const miembrosValidos = guild.members.cache.filter(m => !m.user.bot);
+        const ganador = miembrosValidos.random();
+
+        if (ganador) {
+            const embed = new EmbedBuilder()
+                .setColor('#FFD700')
+                .setTitle('🎉 ¡TENEMOS UN GANADOR! 🎉')
+                .setDescription(`¡Se ha alcanzado la meta de **${sorteoActivo.meta}** miembros!\n\n` +
+                    `👤 **Ganador:** <@${ganador.id}>\n` +
+                    `🎁 **Premio:** \`${sorteoActivo.premio}\`\n\n` +
+                    `¡Felicidades! Pónte en contacto con el staff para reclamar tu premio.`)
+                .setThumbnail(ganador.user.displayAvatarURL())
+                .setFooter({ text: 'Enderland Network - Sorteos Automáticos' })
+                .setTimestamp();
+
+            await canal.send({ content: `🎊 ¡Felicidades <@${ganador.id}>!`, embeds: [embed] });
+        }
+
+        // Resetear sorteo
+        sorteoActivo = { meta: null, premio: null, canalId: null };
+    }
+});
+
 // --- MANEJO DE INTERACCIONES ---
 client.on('interactionCreate', async (interaction) => {
     // 1. Manejo de Botones
     if (interaction.isButton()) {
         if (interaction.customId === 'verificar_btn') {
             try {
-                if (interaction.member.roles.cache.has(ROL_MIEMBRO_ID)) return interaction.reply({ content: '✅ Ya estás verificado.', ephemeral: true });
+                // Verificar si ya tiene el rol de miembro
+                if (interaction.member.roles.cache.has(ROL_MIEMBRO_ID)) {
+                    return interaction.reply({ content: '✅ Ya estás verificado.', ephemeral: true });
+                }
+
+                // Intentar agregar el rol de miembro y quitar el de anti-member
                 await interaction.member.roles.add(ROL_MIEMBRO_ID);
-                if (interaction.member.roles.cache.has(ROL_ANTIMEMBER_ID)) await interaction.member.roles.remove(ROL_ANTIMEMBER_ID);
-                await interaction.reply({ content: '🎉 ¡Bienvenido a **Enderland**!', ephemeral: true });
+                
+                // Quitar rol antimember obligatoriamente
+                if (interaction.member.roles.cache.has(ROL_ANTIMEMBER_ID)) {
+                    await interaction.member.roles.remove(ROL_ANTIMEMBER_ID);
+                }
+
+                await interaction.reply({ content: '🎉 ¡Bienvenido a **Enderland**! Tu acceso ha sido verificado correctamente.', ephemeral: true });
             } catch (e) {
-                interaction.reply({ content: '❌ Error de jerarquía. Pon mi rol arriba de todos.', ephemeral: true });
+                console.error('Error en verificación (Jerarquía de roles):', e);
+                interaction.reply({ 
+                    content: '❌ **Error de Jerarquía**: No pude gestionar tus roles. Asegúrate de que mi rol esté por encima de los roles que intento asignar/quitar.', 
+                    ephemeral: true 
+                });
             }
             return;
         }
@@ -264,6 +321,35 @@ client.on('messageCreate', async (message) => {
     // COMANDOS DE ADMIN
     if (ADMINS.includes(message.author.id)) {
         
+        if (command === 'sorteo') {
+            const contenido = message.content.slice(8).split('|');
+            if (contenido.length < 2) return message.reply('⚠️ Uso: `!sorteo [meta_miembros] | [premio]`');
+            
+            const meta = parseInt(contenido[0].trim());
+            const premio = contenido[1].trim();
+
+            if (isNaN(meta)) return message.reply('❌ La meta debe ser un número válido.');
+            if (meta <= message.guild.memberCount) return message.reply(`❌ La meta debe ser superior al contador actual (**${message.guild.memberCount}**).`);
+
+            sorteoActivo = {
+                meta: meta,
+                premio: premio,
+                canalId: message.channel.id
+            };
+
+            const embed = new EmbedBuilder()
+                .setColor('#FF4500')
+                .setTitle('🎊 ¡NUEVO SORTEO POR META! 🎊')
+                .setDescription(`Se ha programado un sorteo automático.\n\n` +
+                    `🎯 **Meta de miembros:** \`${meta}\` miembros.\n` +
+                    `🎁 **Premio:** \`${premio}\`.\n\n` +
+                    `¡El ganador será elegido automáticamente al alcanzar la meta!`)
+                .setFooter({ text: 'Enderland Network - Sorteos' })
+                .setTimestamp();
+
+            return message.channel.send({ embeds: [embed] });
+        }
+
         if (command === 'clean') {
             let cant = args[0] === 'all' ? 100 : parseInt(args[0]);
             if (isNaN(cant) || cant <= 0) return message.reply('⚠️ Uso: `!clean [n]` o `!clean all`.');
