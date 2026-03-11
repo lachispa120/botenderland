@@ -32,7 +32,10 @@ appExpress.post('/chat-proxy', async (req, res) => {
 });
 
 const PORT = process.env.PORT || 10000;
-appExpress.listen(PORT, () => console.log(`🚀 API del Chatbot lista en puerto ${PORT}`));
+
+appExpress.listen(PORT, '0.0.0.0', () => {
+    console.log(`🚀 API del Chatbot lista y escuchando en puerto ${PORT}`);
+});
 
 // --- 2. CONFIGURACIÓN DE FIREBASE ---
 const firebaseConfig = {
