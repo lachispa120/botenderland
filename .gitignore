@@ -1,0 +1,10 @@
+# No subir las librerías (Render las instala solo)
+node_modules/
+
+# No subir las claves secretas (Se ponen en el panel de Render)
+.env
+
+# Archivos temporales o de sistema
+npm-debug.log*
+.DS_Store
+dist/

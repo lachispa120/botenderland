@@ -1,0 +1,14 @@
+{
+  "name": "enderland-bot",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.25.1",
+    "dotenv": "^16.6.1",
+    "firebase": "^10.12.2",
+    "firebase-admin": "^13.7.0"
+  }
+}
