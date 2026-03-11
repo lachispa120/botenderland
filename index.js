@@ -10,20 +10,15 @@ const appExpress = express();
 appExpress.use(cors());
 appExpress.use(express.json());
 
-// Ruta principal para que Render vea que el sitio carga (GET /)
+// Ruta principal para Render
 appExpress.get('/', (req, res) => {
     res.send('<h1>🚀 EnderBot Proxy Online</h1><p>El servidor está funcionando correctamente.</p>');
 });
 
-// Ruta de ayuda para el proxy (GET /chat-proxy)
-appExpress.get('/chat-proxy', (req, res) => {
-    res.send('Ruta lista. Envía peticiones POST desde la web para hablar con la IA.');
-});
-
-// Proxy para el Chatbot (POST /chat-proxy)
+// Proxy para el Chatbot
 appExpress.post('/chat-proxy', async (req, res) => {
     try {
-        const { model, messages } = req.body;
+        const { messages } = req.body;
         console.log("📩 Mensaje recibido de la web...");
 
         const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
@@ -68,7 +63,10 @@ const firebaseConfig = {
     appId: "1:90498636412:web:41081a7ff3693104bb87f9"
 };
 
-const fbApp = firebase.initializeApp(firebaseConfig);
+// Evitar reinicialización en Render
+if (!firebase.apps.length) {
+    firebase.initializeApp(firebaseConfig);
+}
 const db = firebase.database();
 
 // --- 3. DISCORD BOT ---
@@ -88,6 +86,7 @@ const SUPPORT_ROLE_ID = process.env.SUPPORT_ROLE_ID;
 client.once('ready', () => {
     console.log(`\n=========================================`);
     console.log(`✅ BOT ONLINE: ${client.user.tag}`);
+    console.log(`⚙️  Guild ID: ${GUILD_ID}`);
     console.log(`=========================================\n`);
     listenForOrders();
 });
@@ -100,8 +99,11 @@ function listenForOrders() {
         const order = snapshot.val();
         const orderId = snapshot.key;
         if (!order || order.ticketId || order.status === 'ticket_created') return;
+        
+        // Evitar órdenes muy viejas (1 hora)
         const diff = Date.now() - (order.createdAt || 0);
         if (diff > 3600000) return; 
+
         console.log(`\n🛒 [NUEVA COMPRA] ID: ${orderId} | MC: ${order.user}`);
         await createTicket(order, orderId);
     });
@@ -116,34 +118,72 @@ async function createTicket(order, orderId) {
         const searchKey = (order.discord || "").trim();
 
         if (searchKey) {
+            console.log(`🔍 [BUSCANDO...] Intentando localizar a: "${searchKey}"`);
             try {
+                // 1. Por ID
                 if (searchKey.match(/^\d{17,20}$/)) {
                     member = await guild.members.fetch(searchKey).catch(() => null);
                 }
+                // 2. Por Query
                 if (!member) {
                     const membersFound = await guild.members.fetch({ query: searchKey, limit: 1 });
                     member = membersFound.first();
                 }
+                // 3. Manual
+                if (!member) {
+                    const allMembers = await guild.members.fetch();
+                    member = allMembers.find(m => 
+                        m.user.username.toLowerCase() === searchKey.toLowerCase() || 
+                        m.user.tag.toLowerCase() === searchKey.toLowerCase()
+                    );
+                }
             } catch (e) { 
-                console.log("⚠️ [ADVERTENCIA] Error durante la búsqueda de usuario."); 
+                console.log("⚠️ [ADVERTENCIA] Error durante la búsqueda:", e.message); 
             }
         }
 
         const permissionOverwrites = [
             { id: guild.id, deny: [PermissionsBitField.Flags.ViewChannel] },
-            { id: client.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ManageChannels] }
+            { 
+                id: client.user.id, 
+                allow: [
+                    PermissionsBitField.Flags.ViewChannel, 
+                    PermissionsBitField.Flags.SendMessages, 
+                    PermissionsBitField.Flags.EmbedLinks, 
+                    PermissionsBitField.Flags.ReadMessageHistory, 
+                    PermissionsBitField.Flags.ManageChannels
+                ] 
+            }
         ];
 
         if (SUPPORT_ROLE_ID) {
-            permissionOverwrites.push({ id: SUPPORT_ROLE_ID, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages] });
+            permissionOverwrites.push({ 
+                id: SUPPORT_ROLE_ID, 
+                allow: [
+                    PermissionsBitField.Flags.ViewChannel, 
+                    PermissionsBitField.Flags.SendMessages, 
+                    PermissionsBitField.Flags.ReadMessageHistory, 
+                    PermissionsBitField.Flags.AttachFiles
+                ] 
+            });
         }
+
         if (member) {
-            permissionOverwrites.push({ id: member.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages] });
+            permissionOverwrites.push({ 
+                id: member.id, 
+                allow: [
+                    PermissionsBitField.Flags.ViewChannel, 
+                    PermissionsBitField.Flags.SendMessages, 
+                    PermissionsBitField.Flags.ReadMessageHistory, 
+                    PermissionsBitField.Flags.AttachFiles, 
+                    PermissionsBitField.Flags.EmbedLinks
+                ] 
+            });
         }
 
         const sanitizedUser = (order.user || "unknown").replace(/[^a-zA-Z0-9]/g, '').toLowerCase().substring(0, 10);
         const channel = await guild.channels.create({
-            name: `compra-${sanitizedUser}-${orderId.slice(-4)}`,
+            name: `🛒-${sanitizedUser}-${orderId.slice(-4)}`,
             type: ChannelType.GuildText,
             parent: CATEGORY_ID || null,
             permissionOverwrites: permissionOverwrites
@@ -154,17 +194,28 @@ async function createTicket(order, orderId) {
             return `\`$${parseFloat(precio).toFixed(2).padEnd(8)}\` | **${i.name}**`;
         }).join('\n');
 
+        const total = (order.totalFinal || 0).toFixed(2);
+        const cuponUsado = order.couponCode ? order.couponCode : (order.totalFinal < order.totalBase ? 'Descuento Aplicado' : 'Ninguno');
+
         const embed = new EmbedBuilder()
             .setTitle(`🛒 RESUMEN DE COMPRA`)
             .setColor(member ? 0x2ECC71 : 0xE67E22)
             .addFields(
-                { name: '👤 Cliente', value: `> **MC:** \`${order.user}\` \n> **Discord:** ${member ? `<@${member.id}>` : `\`${searchKey}\``}`, inline: false },
-                { name: '📦 Productos', value: itemsList || 'Sin items', inline: false },
-                { name: '💰 Pago', value: `\`\`\`yaml\nTotal: $${(order.totalFinal || 0).toFixed(2)} USD\n\`\`\``, inline: false }
-            );
+                { name: '👤 Información del Cliente', value: `> **Minecraft:** \`${order.user}\` \n> **Discord:** ${member ? `<@${member.id}>` : `\`${searchKey}\``}`, inline: false },
+                { name: '📦 Productos Comprados', value: itemsList || 'No hay items registrados', inline: false },
+                { name: '💰 Detalles del Pago', value: `\`\`\`yaml\nCupón: ${cuponUsado}\nTotal: $${total} USD\n\`\`\``, inline: false }
+            )
+            .setTimestamp();
 
         await channel.send({ content: member ? `### 👋 ¡Hola <@${member.id}>!` : `### ⚠️ Atención Staff`, embeds: [embed] });
-        await db.ref(`recent_purchases/${orderId}`).update({ ticketId: channel.id, status: 'ticket_created' });
+        
+        // Actualizar Firebase
+        await db.ref(`recent_purchases/${orderId}`).update({ 
+            ticketId: channel.id, 
+            status: 'ticket_created' 
+        });
+
+        console.log(`🎯 Ticket creado con éxito: ${channel.name}`);
 
     } catch (error) {
         console.error("❌ [ERROR CRÍTICO] Ticket:", error);
