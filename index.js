@@ -33,7 +33,7 @@ appExpress.post('/chat-proxy', async (req, res) => {
                 "Content-Type": "application/json"
             },
             body: JSON.stringify({
-                model: model || "llama3-8b-8192",
+                model: model || "llama-3.3-70b-versatile",
                 messages: messages 
             })
         });
