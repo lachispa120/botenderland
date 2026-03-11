@@ -96,16 +96,30 @@ function listenForOrders() {
     const ordersRef = db.ref('recent_purchases');
     
     ordersRef.on('child_added', async (snapshot) => {
-        const order = snapshot.val();
         const orderId = snapshot.key;
-        if (!order || order.ticketId || order.status === 'ticket_created') return;
+        const order = snapshot.val();
         
-        // Evitar órdenes muy viejas (1 hora)
-        const diff = Date.now() - (order.createdAt || 0);
-        if (diff > 3600000) return; 
+        console.log(`🔍 [DETECTADO] Se encontró algo en Firebase: ID ${orderId}`);
 
-        console.log(`\n🛒 [NUEVA COMPRA] ID: ${orderId} | MC: ${order.user}`);
+        if (!order) return console.log("⚠️ Orden vacía.");
+        if (order.ticketId || order.status === 'ticket_created') {
+            return console.log(`⏭️ Ignorando ID ${orderId}: Ya tiene ticket.`);
+        }
+
+        // --- DEBUG DE TIEMPO ---
+        const now = Date.now();
+        const orderTime = order.createdAt || 0;
+        const diff = now - orderTime;
+        
+        console.log(`⏱️ Tiempo transcurrido: ${Math.round(diff/1000)} segundos.`);
+
+        // Si quieres que cree el ticket SIN IMPORTAR EL TIEMPO (para probar), comenta la línea de abajo:
+        // if (diff > 3600000) return console.log("❌ Orden demasiado vieja, ignorando.");
+
+        console.log(`🛒 [PROCESANDO] Creando ticket para: ${order.user}`);
         await createTicket(order, orderId);
+    }, (error) => {
+        console.error("🔥 [ERROR FIREBASE]:", error);
     });
 }
 
